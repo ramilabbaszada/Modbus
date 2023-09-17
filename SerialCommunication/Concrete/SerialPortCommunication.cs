@@ -1,4 +1,6 @@
-﻿using SerialCommunication.Abstract;
+﻿using Core.Results.Abstract;
+using Core.Results.Concrete;
+using SerialCommunication.Abstract;
 using System;
 using System.Collections.Generic;
 using System.IO.Ports;
@@ -11,83 +13,81 @@ namespace SerialCommunication.Concrete
     public class SerialPortCommunication : ISerialPortCommunication
     {
         private string _portName;
-        private SerialPort? SelectedPort { get; set; }
+        private SerialPort SelectedPort { get; set; }
         private int Baudrate { get; set;}
         private int Databits { get; set; }
-        private StopBits Stopbits { get; set;}
+        private StopBits _Stopbits { get; set;}
         private Parity ParityBits { get; set;}
-        private Handshake Handshake { get; set;}
-        public SerialPortCommunication(string portName,int Baudrate,int Databits, StopBits StopBits, Parity parity) {
+        private Handshake _Handshake { get; set;}
+
+        public SerialPortCommunication(string portName,int Baudrate=9600,int Databits=8, StopBits stopBits=StopBits.One, Parity parity=Parity.Even, Handshake handshake=Handshake.None) {
             this._portName = portName;
             this.Baudrate = Baudrate;
             this.Databits = Databits;
-            this.Stopbits = Stopbits;
-            this.ParityBits = ParityBits;
-            this.Handshake = Handshake.None;
+            this._Stopbits = stopBits;
+            this.ParityBits = parity;
+            this._Handshake = handshake;
         }
-        public bool SendRequest(byte[] message)
+
+        public IResult SendRequest(byte[] message)
         {
             try
             {
                 SelectedPort.Write(message, 0, message.Length);
-                return true;
+                return new SuccessResult();
             }
             catch (Exception e) {
-                Console.WriteLine(e.Message);
-                return false;
+                return new ErrorResult(e.Message);
             }
             
         }
-        public bool ReceiveResponse(out byte[] Response)
+        public IDataResult<byte[]> ReceiveResponse()
         {
             try {
-                int bytes = SelectedPort.BytesToRead;
-                Response = new byte[bytes];
-                SelectedPort.Read(Response, 0, bytes);
-                return true;
+                int bytesToRead = SelectedPort.BytesToRead;
+                byte [] Response = new byte[bytesToRead];
+                SelectedPort.Read(Response, 0, bytesToRead);
+                return new SuccessDataResult<byte[]>(Response);
             }catch (Exception e) {
-                Console.WriteLine(e.Message);
-                Response = null;
-                return false;
+                return new ErrorDataResult<byte[]>(e.Message);
             }
         }
-        public bool StopCommunication()
+        public IResult StopCommunication()
         {
             try
             {
                 SelectedPort.Close();
-                return true;
+                return new SuccessResult();
             }
             catch (Exception e) {
-                Console.WriteLine(e.Message);
-                return false;
+                return new ErrorResult(e.Message);
             }
-            
+
         }
-        public bool StartCommunication() {
+
+        public IResult StartCommunication() {
             try
             {
                 SelectedPort = new SerialPort();
                 SelectedPort.PortName = _portName;
                 SelectedPort.BaudRate = Baudrate;
                 SelectedPort.DataBits = Databits;
-                SelectedPort.StopBits = Stopbits;
+                SelectedPort.StopBits = _Stopbits;
                 SelectedPort.Parity = ParityBits;
-                SelectedPort.Handshake = Handshake.None;
+                SelectedPort.Handshake = _Handshake;
                 SelectedPort.Open();
 
                 if(!SelectedPort.IsOpen)
-                {
-                    Console.WriteLine( "Port " + SelectedPort.PortName + " can not be opened");
-                }
-                return true; 
+                    return new ErrorResult();
+
+                return new SuccessResult();
             }
             catch (Exception e) {
-                Console.WriteLine( e.Message);  
-                return false;
+                return new ErrorResult(e.Message);
             }
         }
-        public List<string> ListAllAvailableSerialPorts()
+
+        public static IDataResult<List<string>> ListAllAvailableSerialPorts()
         {
             try
             {
@@ -98,12 +98,13 @@ namespace SerialCommunication.Concrete
                     Console.WriteLine(portName);
                 }
 
-                return ports.ToList();
+                return new SuccessDataResult<List<string>>(ports.ToList());
             }
-            catch (Exception e) { 
-                Console.WriteLine (e.Message);
-                return null;
+            catch (Exception e)
+            {
+                return new ErrorDataResult<List<string>>(e.Message);
             }
         }
+
     }
 }

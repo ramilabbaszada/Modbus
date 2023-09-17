@@ -1,173 +1,109 @@
-﻿using SerialCommunication.Abstract;
-using System;
+﻿using Core.Results.Abstract;
+using Core.Results.Concrete;
+using SerialCommunication.Abstract;
+using SerialCommunication.Constants;
 using System.Collections;
-using System.Collections.Generic;
-using System.IO.Ports;
-using System.Linq;
 using System.Net;
-using System.Text;
-using System.Threading.Tasks;
+
 
 namespace SerialCommunication.Concrete
 {
-    public class ModbusRTU_ASCII : IModbus
+    public class ModbusRTU : IModbus
     {
-        private bool[] booleanResponse;
-
         public byte SlaveAddress { get; set; }
+        public ISerialPortCommunication SerialPortCommunication { get; set; }
 
-        public SerialPortCommunication _serialPortCommunication { get; set; }
-
-        public ModbusRTU_ASCII (SerialPortCommunication serialPortCommunication, byte slaveAddress) { 
-            this._serialPortCommunication = serialPortCommunication;
+        public ModbusRTU (ISerialPortCommunication serialPortCommunication, byte slaveAddress) { 
+            this.SerialPortCommunication = serialPortCommunication;
             SlaveAddress=slaveAddress;  
         }
 
-        public BitArray ReadCoils(int address, int numberOfCoils)
+        public IDataResult<BitArray> ReadCoils(ushort startingAddress, ushort numberOfCoils)
         {
-            try
-            {
-                byte functionCode = (byte)0x01;
-                byte[] message = GenerateRequestMessage(functionCode, address, numberOfCoils);
-                if (!SendRequest(message))
-                    return null;
-                byte[] response;
-                if (!ReceiveResponse(out response))
-                    return null;
-                response=response.Skip(3).Take(response[2]).ToArray();
-                return new BitArray(response);
-            }
-            catch (Exception e) {
-                Console.WriteLine(e.Message);
-                return null;
-            }
-
+            return ReadBooleanMessage(ModbusFunction.ReadCoils, startingAddress, numberOfCoils);
         }
 
-        public BitArray ReadDiscreteInputs(int address, int numberOfDiscreteInouts)
+        public IDataResult<BitArray> ReadDiscreteInputs(ushort startingAddress, ushort numberOfDiscreteInouts)
         {
-            try
-            {
-                byte functionCode = (byte)0x02;
-                byte[] message = GenerateRequestMessage(functionCode, address, numberOfDiscreteInouts);
-                if (!SendRequest(message))
-                    return null;
-                byte[] response;
-                if (!ReceiveResponse(out response))
-                    return null;
-                response = response.Skip(3).Take(response[2]).ToArray();
-                return new BitArray(response);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                return null;
-            }
+            return ReadBooleanMessage(ModbusFunction.ReadDiscreteInputs, startingAddress, numberOfDiscreteInouts); 
         }
 
-        public byte[] ReadHoldingRegiseters(int address, int numberOfHoldingRegisters)
-        {
-            try
-            {
-                byte functionCode = (byte)0x03;
-                byte[] message = GenerateRequestMessage(functionCode, address, numberOfHoldingRegisters);
-                if (!SendRequest(message))
-                    return null;
-                byte[] response;
-                if (!ReceiveResponse(out response))
-                    return null;
-                response = response.Skip(3).Take(response[2]).ToArray();
-                return response;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                return null;
-            }
+        private IDataResult<BitArray> ReadBooleanMessage(ModbusFunction modbusFunction, ushort startingAddress, ushort number) {
+
+            IDataResult<byte[]> result = SendAndReceiveMessage(modbusFunction, startingAddress, number);
+
+            if (!result.IsSuccess)
+                return new ErrorDataResult<BitArray>(result.Message);
+
+            return new SuccessDataResult<BitArray>(new BitArray(result.Data));
         }
 
-        public byte[] ReadInputRegiseters(int address, int numberOfInputRegiseters)
-        {
-            try
-            {
-                byte functionCode = (byte)0x04;
-                byte[] message = GenerateRequestMessage(functionCode, address, numberOfInputRegiseters);
-                if (!SendRequest(message))
-                    return null;
-                byte[] response;
-                if (!ReceiveResponse(out response))
-                    return null;
-                response = response.Skip(3).Take(response[2]).ToArray();
-                return response;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                return null;
-            }
+        private IDataResult<byte[]> SendAndReceiveMessage(ModbusFunction modbusFunction, ushort startingAddress, ushort number) {
+            byte[] message = GenerateRequestMessage(modbusFunction, startingAddress, number);
+            IResult result = SendRequest(message);
+            if (!result.IsSuccess)
+                return new ErrorDataResult<byte[]>(result.Message);
+
+            IDataResult<byte[]> response = ReceiveResponse();
+            if (!response.IsSuccess)
+                return new ErrorDataResult<byte[]>(response.Message);
+
+            return new SuccessDataResult<byte[]>(response.Data);
         }
 
-        public string WriteMultipleRegisters(int address, int registerCount, byte count, byte[] values)
+        public IDataResult<byte[]> ReadHoldingRegiseters(ushort startingAddress, ushort numberOfHoldingRegisters)
         {
-            try
-            {
-                byte functionCode = (byte)0x10;
-                byte[] message = GenerateRequestMessage(functionCode, address, registerCount, count, values);
-                if (!SendRequest(message))
-                    return null;
-                byte[] response;
-                if (!ReceiveResponse(out response))
-                    return null;
+            IDataResult<byte[]> result = SendAndReceiveMessage(ModbusFunction.ReadArchives, startingAddress, numberOfHoldingRegisters);
+            if (!result.IsSuccess) return result;
+
+            byte[] mainValues = result.Data.Skip(3).Take(result.Data[2]).ToArray();
+
+            return new SuccessDataResult<byte[]>(mainValues);
+        }
+
+        public IDataResult<byte[]> ReadInputRegiseters(ushort startingAddress, ushort numberOfInputRegiseters)
+        {
+            IDataResult<byte[]> result = SendAndReceiveMessage(ModbusFunction.ReadInputRegiseters, startingAddress, numberOfInputRegiseters);
+            if (!result.IsSuccess) return result;
+
+            byte[] mainValues = result.Data.Skip(3).Take(result.Data[2]).ToArray();
+
+            return new SuccessDataResult<byte[]>(mainValues);
+        }
+
+        public IResult WriteMultipleRegisters(ushort startingAddress, ushort registerCount,  byte[] values)
+        {
+                byte[] message = GenerateRequestMessage(ModbusFunction.WriteMultipleRegisters, startingAddress, registerCount, values);
                 
-                return "Successfully wrote registers and Response Message is :"+response.Select(e=>e+" ");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                return null;
-            }
+                IResult result = SendRequest(message);
+                if (!result.IsSuccess)
+                    return new ErrorResult(result.Message);
+
+                IResult response = ReceiveResponse();
+                if (!response.IsSuccess)
+                    return new ErrorResult(response.Message);
+
+                return new SuccessResult();
         }
 
-        public string WriteSingleCoil(int address, int value)
+        public IResult WriteSingleCoil(ushort startingAddress, bool value)
         {
-            try
-            {
-                byte functionCode = (byte)0x05;
-                byte[] message = GenerateRequestMessage(functionCode, address, value);
-                if (!SendRequest(message))
-                    return null;
-                byte[] response;
-                if (!ReceiveResponse(out response))
-                    return null;
-                return "Successfully wrote coil and Response Message is :" + response.Select(e => e + " ");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                return null;
-            }
+            IDataResult<byte[]> result;
+
+            if (value)
+                result = SendAndReceiveMessage(ModbusFunction.WriteSingleCoil, startingAddress, 0xFF00);
+            else
+                result = SendAndReceiveMessage(ModbusFunction.WriteSingleCoil, startingAddress, 0x0000);
+
+            return result;
         }
 
-        public string WriteSingleRegister(int address, int value)
+        public IResult WriteSingleRegister(ushort startingAddress, ushort value)
         {
-            try
-            {
-                byte functionCode = (byte)0x06;
-                byte[] message = GenerateRequestMessage(functionCode, address, value);
-                if (!SendRequest(message))
-                    return null;
-                byte[] response;
-                if (!ReceiveResponse(out response))
-                    return null;
-                return "Successfully wrote coil and Response Message is :" + response.Select(e => e + " ");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                return null;
-            }
+            IDataResult<byte[]> result = SendAndReceiveMessage(ModbusFunction.WriteSingleCoil, startingAddress, value);
+            return result;
         }
-        private byte[] GenerateRequestMessage(byte FunctionCode, int address, int registerCount, byte count, byte[] values) {
+        private byte[] GenerateRequestMessage(ModbusFunction functionCode, ushort address, ushort registerCount, byte[] values) {
 
             byte adressHI = BitConverter.GetBytes(address)[1];
             byte adressLO = BitConverter.GetBytes(address)[0];
@@ -176,12 +112,12 @@ namespace SerialCommunication.Concrete
             byte [] Message = new byte[9 + values.Length];
 
             Message[0] = SlaveAddress;
-            Message[1] = FunctionCode;
+            Message[1] = (byte)functionCode;
             Message[2] = adressHI;
             Message[3] = adressLO;
             Message[4] = registerCountHI;
             Message[5] = registerCountLO;
-            Message[6] = count;
+            Message[6] = (byte)values.Length;
             for (int i = 0; i < values.Length; i++)
             {
                 Message[7 + 2 * i] = BitConverter.GetBytes(values[i])[1];
@@ -194,7 +130,7 @@ namespace SerialCommunication.Concrete
             return Message;
         }
 
-        private byte[] GenerateRequestMessage(byte functionCode, int address,int number)
+        private byte[] GenerateRequestMessage(ModbusFunction functionCode, ushort address,ushort number)
         {
             byte [] Message = new byte[8];
 
@@ -204,12 +140,13 @@ namespace SerialCommunication.Concrete
             byte numberLO = BitConverter.GetBytes(number)[0];
 
             Message[0] = SlaveAddress;
-            Message[1] = functionCode;
+            Message[1] = (byte)functionCode;
             Message[2] = adressHI;
             Message[3] = adressLO;
             Message[4] = numberHI;
             Message[5] = numberLO;
-            byte[] CRC = GenerateCRC(Message.Take(5).ToArray());
+
+            byte[] CRC = GenerateCRC(Message.Take(6).ToArray());
             Message[6] = CRC[0];
             Message[7] = CRC[1];
 
@@ -219,47 +156,31 @@ namespace SerialCommunication.Concrete
         private static byte[] GenerateCRC(byte[] ProtocolDataUnit)
         {
             ushort crc = 0XFFFF;
-
             for (int i = 0; i < ProtocolDataUnit.Length; i++)
             {
                 crc ^= ProtocolDataUnit[i];
-
                 for (int j = 0; j < 8; j++)
                 {
                     if ((crc & 0x0001) != 0)
-                    {
                         crc = (ushort)((crc >> 1) ^ 0xA001);
-                    }
                     else
-                    {
                         crc >>= 1;
-                    }
                 }
             }
+
             return BitConverter.GetBytes(crc);
         }
 
-        private bool SendRequest(byte[] message)
+        private IResult SendRequest(byte[] message)
         {
-            return _serialPortCommunication.SendRequest(message);
+            IResult result=SerialPortCommunication.SendRequest(message);
+            return result;
         }
 
-        private bool ReceiveResponse(out byte[] response) {
-            try
-            {
-                Thread.Sleep(50);
-                bool status=_serialPortCommunication.ReceiveResponse(out response);
-                if(!status)
-                    return status;
-                return true;
-            }
-            catch (Exception e) {
-                Console.WriteLine(e.Message);
-                response = null;
-                return false;
-            }
-
-
+        private IDataResult<byte[]> ReceiveResponse() {
+            Thread.Sleep(150);
+            IDataResult<byte[]> response=SerialPortCommunication.ReceiveResponse();
+            return response; 
         }
 
     }
